@@ -1,7 +1,6 @@
 "use client"
 
 import {
-  Star,
   type LucideIcon,
 } from "lucide-react"
 
@@ -43,7 +42,6 @@ export function NavProjects({
           <SidebarMenuButton asChild tooltip={project.name}>
             <a href={project.url}>
               <span>{project.name}</span>
-              {project.icon ? <project.icon className="ml-auto size-4" /> : <Star className="ml-auto size-4" />}
             </a>
           </SidebarMenuButton>
         </SidebarMenuItem>

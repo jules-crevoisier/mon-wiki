@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/sidebar"
 
 const PAGE_TITLES_STORAGE_KEY = "wiki:page-titles"
+const PROJECT_FAVORITES_STORAGE_KEY = "wiki:project-favorites"
 
 function readStoredPageTitles(): Record<string, string> {
   if (typeof window === "undefined") {
@@ -38,6 +39,21 @@ function readStoredPageTitles(): Record<string, string> {
     return typeof parsed === "object" && parsed !== null ? parsed : {}
   } catch {
     return {}
+  }
+}
+
+function readStoredProjectFavorites(): string[] {
+  if (typeof window === "undefined") {
+    return []
+  }
+
+  try {
+    const rawValue = window.localStorage.getItem(PROJECT_FAVORITES_STORAGE_KEY)
+    if (!rawValue) return []
+    const parsed = JSON.parse(rawValue) as string[]
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
   }
 }
 
@@ -140,6 +156,8 @@ const data = {
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const pathname = usePathname()
   const [pageTitles, setPageTitles] = React.useState<Record<string, string>>({})
+  const [projectFavorites, setProjectFavorites] = React.useState<string[]>([])
+  const hasHydratedProjectFavorites = React.useRef(false)
 
   React.useEffect(() => {
     const syncTitles = () => {
@@ -164,6 +182,40 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     }
   }, [])
 
+  React.useEffect(() => {
+    const syncProjectFavorites = () => {
+      const favorites = readStoredProjectFavorites()
+      setProjectFavorites(favorites)
+    }
+
+    const onCustomUpdate = (event: Event) => {
+      const customEvent = event as CustomEvent<string[]>
+      if (Array.isArray(customEvent.detail)) {
+        setProjectFavorites(customEvent.detail)
+      } else {
+        syncProjectFavorites()
+      }
+    }
+
+    syncProjectFavorites()
+    window.addEventListener("storage", syncProjectFavorites)
+    window.addEventListener("wiki:project-favorites-updated", onCustomUpdate)
+    return () => {
+      window.removeEventListener("storage", syncProjectFavorites)
+      window.removeEventListener("wiki:project-favorites-updated", onCustomUpdate)
+    }
+  }, [])
+
+  React.useEffect(() => {
+    if (!hasHydratedProjectFavorites.current) {
+      hasHydratedProjectFavorites.current = true
+      return
+    }
+
+    window.localStorage.setItem(PROJECT_FAVORITES_STORAGE_KEY, JSON.stringify(projectFavorites))
+    window.dispatchEvent(new CustomEvent("wiki:project-favorites-updated", { detail: projectFavorites }))
+  }, [projectFavorites])
+
   const projectsWithDynamicTitles = React.useMemo(() => {
     return data.projects.map((project) => ({
       ...project,
@@ -178,13 +230,32 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     projectsWithDynamicTitles.find((project) => pathname.startsWith(project.url)) ??
     projectsWithDynamicTitles[0]
 
+  const computedSubjects = React.useMemo(() => {
+    const favorites = projectsWithDynamicTitles
+      .filter((project) => projectFavorites.includes(project.url))
+      .map((project) => ({ title: project.name, url: project.url }))
+
+    return {
+      ...data.subjects,
+      favorites,
+    }
+  }, [projectFavorites, projectsWithDynamicTitles])
+
+  const toggleProjectFavorite = (projectUrl: string) => {
+    setProjectFavorites((current) =>
+      current.includes(projectUrl)
+        ? current.filter((url) => url !== projectUrl)
+        : [...current, projectUrl]
+    )
+  }
+
   return (
     <Sidebar collapsible="icon" {...props}>
       <SidebarHeader>
         <TeamSwitcher teams={data.teams} />
       </SidebarHeader>
       <SidebarContent>
-        <NavMain items={data.navMain} subjects={data.subjects} />
+        <NavMain items={data.navMain} subjects={computedSubjects} onToggleFavorite={toggleProjectFavorite} />
         <NavProjects project={openProject} pathname={pathname} />
       </SidebarContent>
       <SidebarFooter>

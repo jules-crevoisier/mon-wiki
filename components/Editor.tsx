@@ -8,21 +8,29 @@ import "@blocknote/shadcn/style.css";
 
 interface EditorProps {
   initialMarkdown?: string;
+  initialBlocks?: unknown[];
   onChangeMarkdown?: (markdown: string) => void;
+  onChangeBlocks?: (blocks: unknown[]) => void;
   editable?: boolean;
 }
 
 export default function Editor({
   initialMarkdown = "",
+  initialBlocks,
   onChangeMarkdown,
+  onChangeBlocks,
   editable = true,
 }: EditorProps) {
-  const editor = useCreateBlockNote();
+  const editor = useCreateBlockNote(
+    initialBlocks && initialBlocks.length > 0
+      ? { initialContent: initialBlocks as never[] }
+      : undefined
+  );
   const hasLoadedInitialContentRef = useRef(false);
 
   useEffect(() => {
     const syncInitialContent = async () => {
-      if (hasLoadedInitialContentRef.current || !initialMarkdown) {
+      if (hasLoadedInitialContentRef.current || !initialMarkdown || (initialBlocks && initialBlocks.length > 0)) {
         return;
       }
       const blocks = await editor.tryParseMarkdownToBlocks(initialMarkdown);
@@ -39,9 +47,11 @@ export default function Editor({
         editor={editor}
         editable={editable}
         onChange={async () => {
-          if (!onChangeMarkdown) return;
-          const markdown = await editor.blocksToMarkdownLossy(editor.document);
-          onChangeMarkdown(markdown);
+          onChangeBlocks?.(editor.document as unknown[]);
+          if (onChangeMarkdown) {
+            const markdown = await editor.blocksToMarkdownLossy(editor.document);
+            onChangeMarkdown(markdown);
+          }
         }}
       />
     </div>

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react"
 import Link from "next/link"
-import { BookOpen, Clock3, LayoutGrid, List, Search, Star } from "lucide-react"
+import { BookOpen, Clock3, LayoutGrid, List, Pencil, Pin, Search, Trash2 } from "lucide-react"
 import { notFound, useParams, useRouter } from "next/navigation"
 
 import { AppSidebar } from "@/components/app-sidebar"
@@ -15,6 +15,13 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb"
 import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
 import {
@@ -35,6 +42,14 @@ function readStoredPageTitles(): Record<string, string> {
   } catch {
     return {}
   }
+}
+
+function slugify(value: string): string {
+  return value
+    .toLowerCase()
+    .trim()
+    .replace(/[^\w\s-]/g, "")
+    .replace(/\s+/g, "-")
 }
 
 interface SubjectPageInfo {
@@ -118,12 +133,19 @@ export default function SubjectPage() {
   const [query, setQuery] = useState("")
   const [pinnedPages, setPinnedPages] = useState<string[]>([])
   const [pageTitles, setPageTitles] = useState<Record<string, string>>({})
+  const [isManageMode, setIsManageMode] = useState(false)
+  const [customPages, setCustomPages] = useState<SubjectPageInfo[]>([])
 
   const subject = useMemo(() => {
     const slug = params?.slug
     if (!slug) return null
     return projectPages[slug] ?? null
   }, [params?.slug])
+
+  useEffect(() => {
+    if (!subject) return
+    setCustomPages(subject.pages)
+  }, [subject])
 
   useEffect(() => {
     if (!subject || !params?.slug) return
@@ -173,14 +195,45 @@ export default function SubjectPage() {
 
   useEffect(() => {
     if (!subject) return
-    if (subject.pages.length === 1) {
-      router.replace(subject.pages[0].href)
+    if (customPages.length === 1) {
+      router.replace(customPages[0].href)
     }
-  }, [router, subject])
+  }, [customPages, router, subject])
+
+  const handleAddPage = () => {
+    if (!subject || !params?.slug) return
+    const pageName = window.prompt("Nom de la nouvelle page")
+    if (!pageName) return
+    const slug = slugify(pageName)
+    if (!slug) return
+    const href = `/sujet/${params.slug}/${slug}`
+    if (customPages.some((page) => page.href === href)) {
+      window.alert("Une page avec ce nom existe deja.")
+      return
+    }
+
+    setCustomPages((current) => [
+      ...current,
+      {
+        name: pageName,
+        href,
+        summary: "Nouvelle page.",
+        updatedAt: "a l'instant",
+        sectionCount: 0,
+      },
+    ])
+  }
+
+  const handleDeletePage = (page: SubjectPageInfo) => {
+    const confirmed = window.confirm(`Supprimer la page "${page.name}" ?`)
+    if (!confirmed) return
+    setCustomPages((current) => current.filter((item) => item.href !== page.href))
+    setPinnedPages((current) => current.filter((href) => href !== page.href))
+  }
 
   const filteredPages = useMemo(() => {
     if (!subject) return []
-    const pagesWithDynamicTitles = subject.pages.map((page) => ({
+    const pagesWithDynamicTitles = customPages.map((page) => ({
       ...page,
       name: pageTitles[page.href] ?? page.name,
     }))
@@ -192,7 +245,7 @@ export default function SubjectPage() {
         page.name.toLowerCase().includes(normalizedQuery) ||
         page.summary.toLowerCase().includes(normalizedQuery)
     )
-  }, [subject, query, pageTitles])
+  }, [customPages, query, pageTitles, subject])
 
   const orderedPages = useMemo(() => {
     const pinned = filteredPages.filter((page) => pinnedPages.includes(page.href))
@@ -204,7 +257,7 @@ export default function SubjectPage() {
     notFound()
   }
 
-  if (subject.pages.length === 1) {
+  if (customPages.length === 1) {
     return null
   }
 
@@ -271,6 +324,20 @@ export default function SubjectPage() {
               >
                 <List />
               </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="icon" aria-label="Edit pages">
+                    <Pencil className="size-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => setIsManageMode((value) => !value)}>
+                    {isManageMode ? "Desactiver suppression" : "Activer suppression"}
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={handleAddPage}>Add page</DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           </div>
 
@@ -292,8 +359,18 @@ export default function SubjectPage() {
                             className="ml-auto rounded p-1 text-amber-500 hover:bg-muted"
                             aria-label={`Desepingler ${page.name}`}
                           >
-                            <Star className="size-4 fill-current" />
+                            <Pin className="size-4 fill-current" />
                           </button>
+                          {isManageMode && (
+                            <button
+                              type="button"
+                              onClick={() => handleDeletePage(page)}
+                              className="rounded p-1 text-destructive hover:bg-muted"
+                              aria-label={`Supprimer ${page.name}`}
+                            >
+                              <Trash2 className="size-4" />
+                            </button>
+                          )}
                         </div>
                         <p className="line-clamp-2 text-sm text-muted-foreground">{page.summary}</p>
                       </div>
@@ -333,8 +410,18 @@ export default function SubjectPage() {
                         className="ml-auto rounded p-1 text-muted-foreground hover:bg-muted hover:text-amber-500"
                         aria-label={`Epingler ${page.name}`}
                       >
-                        <Star className="size-4" />
+                        <Pin className="size-4" />
                       </button>
+                      {isManageMode && (
+                        <button
+                          type="button"
+                          onClick={() => handleDeletePage(page)}
+                          className="rounded p-1 text-destructive hover:bg-muted"
+                          aria-label={`Supprimer ${page.name}`}
+                        >
+                          <Trash2 className="size-4" />
+                        </button>
+                      )}
                     </div>
                     <p className="line-clamp-2 text-sm text-muted-foreground">{page.summary}</p>
                   </div>

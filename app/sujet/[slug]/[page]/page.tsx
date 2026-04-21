@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { type MouseEvent, useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import { notFound, useParams, useRouter, useSearchParams } from "next/navigation"
 import { Edit3, Save } from "lucide-react"
@@ -100,6 +100,7 @@ Authentication, authorization, rate limiting et audit.
 
 const LEGACY_SAMPLE_TITLE = "Exemple de page avec sommaire"
 const PAGE_TITLES_STORAGE_KEY = "wiki:page-titles"
+const PAGE_BLOCKS_STORAGE_PREFIX = "wiki:page-blocks:"
 
 function slugifyHeading(value: string): string {
   return value
@@ -154,6 +155,7 @@ export default function SubjectContentPage() {
   const searchParams = useSearchParams()
   const isEditMode = searchParams.get("edit") === "1"
   const [content, setContent] = useState("")
+  const [contentBlocks, setContentBlocks] = useState<unknown[] | null>(null)
 
   const context = useMemo(() => {
     const slug = params?.slug
@@ -174,6 +176,23 @@ export default function SubjectContentPage() {
 
   useEffect(() => {
     if (!context || !storageKey) return
+    const blocksStorageKey = `${PAGE_BLOCKS_STORAGE_PREFIX}${context.slug}/${context.page}`
+    const storedBlocks = window.localStorage.getItem(blocksStorageKey)
+    if (storedBlocks) {
+      try {
+        const parsedBlocks = JSON.parse(storedBlocks) as unknown[]
+        if (Array.isArray(parsedBlocks) && parsedBlocks.length > 0) {
+          setContentBlocks(parsedBlocks)
+        } else {
+          setContentBlocks(null)
+        }
+      } catch {
+        setContentBlocks(null)
+      }
+    } else {
+      setContentBlocks(null)
+    }
+
     const stored = window.localStorage.getItem(storageKey)
     if (stored) {
       const normalized = replaceLegacySampleTitle(stored, context.pageTitle)
@@ -213,7 +232,29 @@ export default function SubjectContentPage() {
   const handleSave = () => {
     if (!storageKey) return
     window.localStorage.setItem(storageKey, content)
+    if (context && contentBlocks) {
+      const blocksStorageKey = `${PAGE_BLOCKS_STORAGE_PREFIX}${context.slug}/${context.page}`
+      window.localStorage.setItem(blocksStorageKey, JSON.stringify(contentBlocks))
+    }
     router.push(`/sujet/${context.slug}/${context.page}`)
+  }
+
+  const navigateToHeading = (id: string) => (event: MouseEvent<HTMLAnchorElement>) => {
+    event.preventDefault()
+    const element = document.getElementById(id)
+    if (element) {
+      element.scrollIntoView({ behavior: "smooth", block: "start" })
+      window.history.replaceState(null, "", `#${id}`)
+      return
+    }
+
+    const headingText = toc.find((item) => item.id === id)?.title
+    if (!headingText) return
+    const possibleElements = Array.from(document.querySelectorAll("h1, h2, h3, [data-content-type='heading']"))
+    const match = possibleElements.find((node) => node.textContent?.trim() === headingText)
+    if (!match) return
+    ;(match as HTMLElement).scrollIntoView({ behavior: "smooth", block: "start" })
+    window.history.replaceState(null, "", `#${id}`)
   }
 
   return (
@@ -242,7 +283,17 @@ export default function SubjectContentPage() {
               </BreadcrumbItem>
             </BreadcrumbList>
           </Breadcrumb>
-          {!isEditMode && (
+          {isEditMode ? (
+            <div className="ml-auto flex items-center gap-2">
+              <Button onClick={handleSave} size="sm">
+                <Save className="mr-2 size-4" />
+                Save
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => router.push(`/sujet/${context.slug}/${context.page}`)}>
+                Cancel
+              </Button>
+            </div>
+          ) : (
             <Button
               size="sm"
               className="ml-auto"
@@ -257,45 +308,46 @@ export default function SubjectContentPage() {
           <div className="relative">
             <section>
               {isEditMode ? (
-                <div className="mx-auto w-full max-w-4xl space-y-4">
-                  <Editor initialMarkdown={content} onChangeMarkdown={setContent} />
-                  <div className="flex items-center gap-2">
-                    <Button onClick={handleSave}>
-                      <Save className="mr-2 size-4" />
-                      Save
-                    </Button>
-                    <Button variant="outline" onClick={() => router.push(`/sujet/${context.slug}/${context.page}`)}>
-                      Cancel
-                    </Button>
-                  </div>
+                <div className="mx-auto w-full max-w-4xl">
+                  <Editor
+                    initialMarkdown={content}
+                    initialBlocks={contentBlocks ?? undefined}
+                    onChangeMarkdown={setContent}
+                    onChangeBlocks={setContentBlocks}
+                  />
                 </div>
               ) : (
                 <article className="mx-auto w-full max-w-4xl">
-                  <Editor initialMarkdown={content} editable={false} />
+                  <Editor initialMarkdown={content} initialBlocks={contentBlocks ?? undefined} editable={false} />
                 </article>
               )}
             </section>
-            {!isEditMode && (
-              <aside className="fixed right-6 top-24 hidden w-[260px] lg:block">
-                <div className="rounded-xl border bg-card p-4 shadow-sm">
-                  <SidebarGroup>
-                    <SidebarGroupLabel>Sommaire</SidebarGroupLabel>
-                    <SidebarMenu>
-                      {toc.map((item) => (
-                        <SidebarMenuItem key={item.id}>
-                          <SidebarMenuButton
-                            asChild
-                            className={item.level === 3 ? "pl-8" : item.level === 2 ? "pl-6" : ""}
-                          >
-                            <a href={`#${item.id}`}>{item.title}</a>
-                          </SidebarMenuButton>
-                        </SidebarMenuItem>
-                      ))}
-                    </SidebarMenu>
-                  </SidebarGroup>
-                </div>
-              </aside>
-            )}
+            <aside className="fixed right-6 top-24 hidden w-[260px] lg:block">
+              {isEditMode && (
+                <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  Preview
+                </p>
+              )}
+              <div className="rounded-xl border bg-card p-4 shadow-sm">
+                <SidebarGroup>
+                  <SidebarGroupLabel>Sommaire</SidebarGroupLabel>
+                  <SidebarMenu>
+                    {toc.map((item) => (
+                      <SidebarMenuItem key={item.id}>
+                        <SidebarMenuButton
+                          asChild
+                          className={item.level === 3 ? "pl-8" : item.level === 2 ? "pl-6" : ""}
+                        >
+                          <a href={`#${item.id}`} onClick={navigateToHeading(item.id)}>
+                            {item.title}
+                          </a>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                    ))}
+                  </SidebarMenu>
+                </SidebarGroup>
+              </div>
+            </aside>
           </div>
         </div>
       </SidebarInset>
